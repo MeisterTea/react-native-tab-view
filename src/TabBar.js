@@ -63,6 +63,7 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
     getAccessible: PropTypes.func,
     getAccessibilityLabel: PropTypes.func,
     getTestID: PropTypes.func,
+    showTab: PropTypes.func,
     renderIcon: PropTypes.func,
     renderLabel: PropTypes.func,
     renderIndicator: PropTypes.func,
@@ -130,8 +131,8 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
     }
 
     if (
-      prevProps.navigationState.routes.length !==
-        this.props.navigationState.routes.length ||
+      this._filterShownTabs(prevProps.navigationState.routes).length !==
+        this._filterShownTabs(this.props.navigationState.routes).length ||
       prevProps.layout.width !== this.props.layout.width
     ) {
       this._resetScroll(this.props.navigationState.index, false);
@@ -190,6 +191,15 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
     this._adjustScroll(value);
   };
 
+  _filterShownTabs = (routes: Scene<*>[]) => {
+    return routes.filter(route => this._showTab(route));
+  };
+
+  _showTab = (scene: Scene<*>) => {
+    if (this.props.showTab(scene) === false) return false;
+    return true;
+  };
+
   _renderLabel = (scene: Scene<*>) => {
     if (typeof this.props.renderLabel !== 'undefined') {
       return this.props.renderLabel(scene);
@@ -210,11 +220,18 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
       return this.props.renderIndicator(props);
     }
     const { width, position, navigationState } = props;
+    const filteredRoutes = this._filterShownTabs(navigationState.routes);
+    const filteredRoutesLength = filteredRoutes.length;
+    let { opacity } = this.props.indicatorStyle;
+    opacity = opacity !== undefined ? opacity : 1;
+    if (navigationState.index >= filteredRoutesLength) {
+      opacity = 0;
+    }
     const translateX = Animated.multiply(
       Animated.multiply(
         position.interpolate({
-          inputRange: [0, navigationState.routes.length - 1],
-          outputRange: [0, navigationState.routes.length - 1],
+          inputRange: [0, filteredRoutesLength - 1],
+          outputRange: [0, filteredRoutesLength - 1],
           extrapolate: 'clamp',
         }),
         width
@@ -227,6 +244,7 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
           styles.indicator,
           { width, transform: [{ translateX }] },
           this.props.indicatorStyle,
+          { opacity },
         ]}
       />
     );
@@ -253,12 +271,13 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
     if (props.scrollEnabled) {
       return (layout.width / 5) * 2;
     }
-
-    return layout.width / navigationState.routes.length;
+    return layout.width / this._filterShownTabs(navigationState.routes).length;
   };
 
   _handleTabPress = ({ route }: Scene<*>) => {
-    this._pendingIndex = this.props.navigationState.routes.indexOf(route);
+    this._pendingIndex = this._filterShownTabs(
+      this.props.navigationState.routes
+    ).indexOf(route);
 
     if (this.props.onTabPress) {
       this.props.onTabPress({ route });
@@ -277,7 +296,7 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
     const { layout, navigationState } = props;
     const tabWidth = this._getTabWidth(props);
     const tabBarWidth = Math.max(
-      tabWidth * navigationState.routes.length,
+      tabWidth * this._filterShownTabs(navigationState.routes).length,
       layout.width
     );
     const maxDistance = tabBarWidth - layout.width;
@@ -355,11 +374,12 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
   render() {
     const { position, navigationState, scrollEnabled, bounces } = this.props;
     const { routes } = navigationState;
+    const filteredRoutes = this._filterShownTabs(routes);
     const tabWidth = this._getTabWidth(this.props);
-    const tabBarWidth = tabWidth * routes.length;
+    const tabBarWidth = tabWidth * filteredRoutes.length;
 
     // Prepend '-1', so there are always at least 2 items in inputRange
-    const inputRange = [-1, ...routes.map((x, i) => i)];
+    const inputRange = [-1, ...filteredRoutes.map((x, i) => i)];
     const translateX = Animated.multiply(this.state.scrollAmount, -1);
 
     return (
@@ -411,17 +431,19 @@ export default class TabBar<T: *> extends React.Component<Props<T>, State> {
             contentOffset={this.state.initialOffset}
             ref={el => (this._scrollView = el && el.getNode())}
           >
-            {routes.map((route, i) => {
+            {filteredRoutes.map((route, i) => {
               const outputRange = inputRange.map(
                 inputIndex => (inputIndex === i ? 1 : 0.7)
               );
-              const opacity = Animated.multiply(
+              let opacity = Animated.multiply(
                 this.state.visibility,
                 position.interpolate({
                   inputRange,
                   outputRange,
                 })
               );
+              opacity =
+                navigationState.index >= filteredRoutes.length ? 1 : opacity;
               const label = this._renderLabel({ route });
               const icon = this.props.renderIcon
                 ? this.props.renderIcon({ route })
